@@ -5,17 +5,17 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("MailBomber", "herbs.acab", "1.0.5")]
-    [Description("Interacting with a mailbox causes an MLRS rocket barrage to activate.")]
+    [Info("MailBomber", "herbs.acab", "1.0.9")]
+    [Description("Interacting with a mailbox deploys C4 and prevents the player from moving, jumping, or crouching.")]
     public class MailBomber : RustPlugin
     {
-        private const string permissionUse = "mailbomber.use";
         private List<BaseEntity> createdEntities = new List<BaseEntity>();
         private List<string> noteMessages = new List<string>();
+        private HashSet<BaseEntity> bombMailboxes = new HashSet<BaseEntity>();
+        private Dictionary<ulong, Timer> frozenPlayers = new Dictionary<ulong, Timer>();
 
         private void Init()
         {
-            permission.RegisterPermission(permissionUse, this);
             LoadConfig();
         }
 
@@ -37,9 +37,9 @@ namespace Oxide.Plugins
         [ChatCommand("mailbomber")]
         private void MailBomberCommand(BasePlayer player, string command, string[] args)
         {
-            if (!HasPermission(player))
+            if (!player.IsAdmin)
             {
-                SendReply(player, "You don't have permission to use this command.");
+                SendReply(player, "You must be an admin to use this command.");
                 return;
             }
 
@@ -57,6 +57,13 @@ namespace Oxide.Plugins
                 return;
             }
 
+            if (bombMailboxes.Contains(mailbox))
+            {
+                SendReply(player, "This mailbox is already configured as a MailBomber.");
+                return;
+            }
+
+            bombMailboxes.Add(mailbox);
             mailbox.gameObject.AddComponent<MailBomberMailbox>();
             createdEntities.Add(mailbox);
             AddNotesToMailbox(mailbox);
@@ -66,31 +73,29 @@ namespace Oxide.Plugins
         [ChatCommand("clearmailbomber")]
         private void ClearMailBomberCommand(BasePlayer player, string command, string[] args)
         {
-            if (!HasPermission(player))
+            if (!player.IsAdmin)
             {
-                SendReply(player, "You don't have permission to use this command.");
+                SendReply(player, "You must be an admin to use this command.");
                 return;
             }
 
-            foreach (var entity in createdEntities)
+            int clearedCount = 0;
+            foreach (var mailbox in bombMailboxes)
             {
-                if (entity != null && !entity.IsDestroyed)
+                if (mailbox != null && !mailbox.IsDestroyed)
                 {
-                    var component = entity.GetComponent<MailBomberMailbox>();
+                    var component = mailbox.GetComponent<MailBomberMailbox>();
                     if (component != null)
                     {
                         GameObject.Destroy(component);
                     }
+                    createdEntities.Remove(mailbox);
+                    clearedCount++;
                 }
             }
 
-            createdEntities.Clear();
-            SendReply(player, "All MailBomber entities have been cleaned up.");
-        }
-
-        private bool HasPermission(BasePlayer player)
-        {
-            return permission.UserHasPermission(player.UserIDString, permissionUse);
+            bombMailboxes.Clear();
+            SendReply(player, $"MailBomber has been cleared from {clearedCount} mailboxes.");
         }
 
         private void OnEntityKill(BaseNetworkable entity)
@@ -98,6 +103,7 @@ namespace Oxide.Plugins
             if (createdEntities.Contains(entity as BaseEntity))
             {
                 createdEntities.Remove(entity as BaseEntity);
+                bombMailboxes.Remove(entity as BaseEntity);
             }
         }
 
@@ -122,20 +128,48 @@ namespace Oxide.Plugins
 
         private void OnLootEntity(BasePlayer player, BaseEntity entity)
         {
-            if (entity.ShortPrefabName == "mailbox.deployed")
+            if (entity.ShortPrefabName == "mailbox.deployed" && bombMailboxes.Contains(entity))
             {
-                if (!player.IPlayer.HasPermission(permissionUse))
-                {
-                    player.ChatMessage("You don't have permission to interact with this mailbox.");
-                    return;
-                }
-
                 var position = entity.transform.position;
-                foreach (var activePlayer in BasePlayer.activePlayerList)
-                {
-                    Effect.server.Run("assets/prefabs/npc/mlrs/rocket_mlrs/effects/mlrsrocket_explosion.prefab", position);
-                }
-                Debug.Log("MLRS Rocket Barrage deployed.");
+                DeployC4(position);
+
+                PreventPlayerMovement(player);
+                Debug.Log("C4 deployed and player movement prevented.");
+            }
+        }
+
+        private void DeployC4(Vector3 position)
+        {
+            var c4 = GameManager.server.CreateEntity("assets/prefabs/tools/c4/explosive.timed.deployed.prefab", position, Quaternion.identity);
+            if (c4 != null)
+            {
+                c4.Spawn();
+            }
+        }
+
+        private void PreventPlayerMovement(BasePlayer player)
+        {
+            player.PauseFlyHackDetection(10f); // Prevents false positives for fly hacking
+            player.SetPlayerFlag(BasePlayer.PlayerFlags.Frozen, true);
+            player.ClientRPCPlayer(null, player, "ForcePositionTo", player.transform.position);
+            player.SendNetworkUpdateImmediate();
+
+            if (frozenPlayers.ContainsKey(player.userID))
+            {
+                frozenPlayers[player.userID].Destroy();
+            }
+
+            frozenPlayers[player.userID] = timer.Once(10f, () => AllowPlayerMovement(player));
+        }
+
+        private void AllowPlayerMovement(BasePlayer player)
+        {
+            player.SetPlayerFlag(BasePlayer.PlayerFlags.Frozen, false);
+            player.SendNetworkUpdateImmediate();
+
+            if (frozenPlayers.ContainsKey(player.userID))
+            {
+                frozenPlayers.Remove(player.userID);
             }
         }
 
