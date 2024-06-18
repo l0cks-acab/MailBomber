@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("MailBomber", "herbs.acab", "1.0.9")]
+    [Info("MailBomber", "herbs.acab", "1.1.0")]
     [Description("Interacting with a mailbox deploys C4 and prevents the player from moving, jumping, or crouching.")]
     public class MailBomber : RustPlugin
     {
@@ -150,25 +150,30 @@ namespace Oxide.Plugins
         private void PreventPlayerMovement(BasePlayer player)
         {
             player.PauseFlyHackDetection(10f); // Prevents false positives for fly hacking
-            player.SetPlayerFlag(BasePlayer.PlayerFlags.Frozen, true);
-            player.ClientRPCPlayer(null, player, "ForcePositionTo", player.transform.position);
-            player.SendNetworkUpdateImmediate();
+
+            Vector3 originalPosition = player.transform.position;
 
             if (frozenPlayers.ContainsKey(player.userID))
             {
                 frozenPlayers[player.userID].Destroy();
             }
 
+            frozenPlayers[player.userID] = timer.Repeat(0.1f, 100, () =>
+            {
+                player.SetParent(null, true, true);
+                player.MovePosition(originalPosition);
+                player.ClientRPCPlayer(null, player, "ForcePositionTo", originalPosition);
+                player.SendNetworkUpdateImmediate();
+            });
+
             frozenPlayers[player.userID] = timer.Once(10f, () => AllowPlayerMovement(player));
         }
 
         private void AllowPlayerMovement(BasePlayer player)
         {
-            player.SetPlayerFlag(BasePlayer.PlayerFlags.Frozen, false);
-            player.SendNetworkUpdateImmediate();
-
             if (frozenPlayers.ContainsKey(player.userID))
             {
+                frozenPlayers[player.userID].Destroy();
                 frozenPlayers.Remove(player.userID);
             }
         }
