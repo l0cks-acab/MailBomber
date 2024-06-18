@@ -1,6 +1,6 @@
 # MailBomber
 
-A Rust plugin that triggers an MLRS rocket barrage when a player interacts with a mailbox. The plugin also adds configurable notes to the mailbox.
+A Rust plugin that triggers a timed explosion when a player interacts with a mailbox. The plugin also adds configurable notes to the mailbox. 
 
 ## Author 
 
@@ -8,7 +8,8 @@ Made by herbs.acab
 
 ## Features
 
-- Activates an MLRS rocket barrage upon interaction with a mailbox.
+- Activates a C4 upon interaction with a mailbox.
+- Freezes the player to prevent movements.
 - Adds configurable notes to the mailbox.
 - Includes commands to set up and clear the MailBomber functionality.
 - Permission-based access to commands and interaction.
